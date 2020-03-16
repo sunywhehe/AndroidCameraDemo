@@ -1,4 +1,4 @@
-package com.example.android.camera2video;
+package com.example.android.camera2video.base;
 
 import android.app.Fragment;
 import android.content.pm.PackageManager;
@@ -7,6 +7,7 @@ import android.support.v13.app.FragmentCompat;
 import android.support.v4.app.ActivityCompat;
 import android.util.Log;
 
+import com.example.android.camera2video.R;
 import com.example.android.camera2video.dialog.ConfirmationDialog;
 import com.example.android.camera2video.dialog.ErrorDialog;
 
@@ -25,7 +26,7 @@ public class BaseFragment extends Fragment implements FragmentCompat.OnRequestPe
     /**
      * Requests permissions needed for recording video.
      */
-    void requestVideoPermissions() {
+    public void requestVideoPermissions() {
         if (shouldShowRequestPermissionRationale(VIDEO_PERMISSIONS)) {
             new ConfirmationDialog().show(getChildFragmentManager(), FRAGMENT_DIALOG);
         } else {
@@ -55,7 +56,7 @@ public class BaseFragment extends Fragment implements FragmentCompat.OnRequestPe
         }
     }
 
-    boolean hasPermissionsGranted(String[] permissions) {
+    public boolean hasPermissionsGranted(String[] permissions) {
         for (String permission : permissions) {
             if (ActivityCompat.checkSelfPermission(getActivity(), permission)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -71,7 +72,7 @@ public class BaseFragment extends Fragment implements FragmentCompat.OnRequestPe
      * @param permissions The permissions your app wants to request.
      * @return Whether you can show permission rationale UI.
      */
-    boolean shouldShowRequestPermissionRationale(String[] permissions) {
+    public boolean shouldShowRequestPermissionRationale(String[] permissions) {
         for (String permission : permissions) {
             if (FragmentCompat.shouldShowRequestPermissionRationale(this, permission)) {
                 return true;

@@ -21,20 +21,26 @@ import android.os.HandlerThread;
 import android.support.annotation.NonNull;
 import android.util.Log;
 import android.util.Size;
-import android.util.SparseIntArray;
 import android.view.Surface;
 import android.view.TextureView;
-import android.widget.Toast;
 
-import com.example.android.camera2video.AutoFitTextureView;
+import com.example.android.camera2video.util.FileUtils;
+import com.example.android.camera2video.widget.AutoFitTextureView;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+
+import static com.example.android.camera2video.Constant.DEFAULT_ORIENTATIONS;
+import static com.example.android.camera2video.Constant.INVERSE_ORIENTATIONS;
+import static com.example.android.camera2video.Constant.SENSOR_ORIENTATION_DEFAULT_DEGREES;
+import static com.example.android.camera2video.Constant.SENSOR_ORIENTATION_INVERSE_DEGREES;
+import static com.example.android.camera2video.util.CameraUtil.chooseOptimalSize;
+import static com.example.android.camera2video.util.CameraUtil.chooseVideoSize;
+
 
 /**
  * @author leosun
@@ -45,21 +51,8 @@ public class DefaultCameraHelper implements CameraHelper {
 
     private static final String TAG = "DefaultCameraHelper:";
 
-    private static final int SENSOR_ORIENTATION_DEFAULT_DEGREES = 90;
-    private static final int SENSOR_ORIENTATION_INVERSE_DEGREES = 270;
-    private static final SparseIntArray DEFAULT_ORIENTATIONS = new SparseIntArray();
-    private static final SparseIntArray INVERSE_ORIENTATIONS = new SparseIntArray();
 
     public DefaultCameraHelper() {
-        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_0, 90);
-        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_90, 0);
-        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_180, 270);
-        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_270, 180);
-
-        INVERSE_ORIENTATIONS.append(Surface.ROTATION_0, 270);
-        INVERSE_ORIENTATIONS.append(Surface.ROTATION_90, 180);
-        INVERSE_ORIENTATIONS.append(Surface.ROTATION_180, 90);
-        INVERSE_ORIENTATIONS.append(Surface.ROTATION_270, 0);
     }
 
     private AutoFitTextureView mTextureView;
@@ -89,6 +82,11 @@ public class DefaultCameraHelper implements CameraHelper {
      * A reference to the opened {@link android.hardware.camera2.CameraDevice}.
      */
     private CameraDevice mCameraDevice;
+
+    /**
+     * ID of the current {@link CameraDevice}.
+     */
+    private String mCameraId;
 
     private MediaRecorder mMediaRecorder;
     private Integer mSensorOrientation;
@@ -133,28 +131,10 @@ public class DefaultCameraHelper implements CameraHelper {
             if (!mCameraOpenCloseLock.tryAcquire(2500, TimeUnit.MILLISECONDS)) {
                 throw new RuntimeException("Time out waiting to lock camera opening.");
             }
-            String cameraId = manager.getCameraIdList()[0];
-            // Choose the sizes for camera preview and video recording
-            CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
-            StreamConfigurationMap map = characteristics
-                    .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-            mSensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
-            if (map == null) {
-                throw new RuntimeException("Cannot get available preview/video sizes");
-            }
-            mVideoSize = chooseVideoSize(map.getOutputSizes(MediaRecorder.class));
-            mPreviewSize = chooseOptimalSize(map.getOutputSizes(SurfaceTexture.class),
-                    width, height, mVideoSize);
-
-            int orientation = mActivity.getResources().getConfiguration().orientation;
-            if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                mTextureView.setAspectRatio(mPreviewSize.getWidth(), mPreviewSize.getHeight());
-            } else {
-                mTextureView.setAspectRatio(mPreviewSize.getHeight(), mPreviewSize.getWidth());
-            }
+            setUpCameraOutputs(manager, width, height);
             configureTransform(width, height);
             mMediaRecorder = new MediaRecorder();
-            manager.openCamera(cameraId, mStateCallback, null);
+            manager.openCamera(mCameraId, mStateCallback, null);
         } catch (Exception e) {
             if (mCameraStateListener != null) {
                 mCameraStateListener.onCameraOpenError(e);
@@ -211,51 +191,30 @@ public class DefaultCameraHelper implements CameraHelper {
     }
 
     /**
-     * In this sample, we choose a video size with 3x4 aspect ratio. Also, we don't use sizes
-     * larger than 1080p, since MediaRecorder cannot handle such a high-resolution video.
+     * Sets up member variables related to camera.
      *
-     * @param choices The list of available sizes
-     * @return The video size
+     * @param width  The width of available size for camera preview
+     * @param height The height of available size for camera preview
      */
-    private static Size chooseVideoSize(Size[] choices) {
-        for (Size size : choices) {
-            if (size.getWidth() == size.getHeight() * 4 / 3 && size.getWidth() <= 1080) {
-                return size;
-            }
+    public void setUpCameraOutputs(CameraManager manager, int width, int height) throws CameraAccessException {
+        mCameraId = manager.getCameraIdList()[0];
+        // Choose the sizes for camera preview and video recording
+        CameraCharacteristics characteristics = manager.getCameraCharacteristics(mCameraId);
+        StreamConfigurationMap map = characteristics
+                .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        mSensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+        if (map == null) {
+            throw new RuntimeException("Cannot get available preview/video sizes");
         }
-        Log.e(TAG, "Couldn't find any suitable video size");
-        return choices[choices.length - 1];
-    }
+        mVideoSize = chooseVideoSize(map.getOutputSizes(MediaRecorder.class));
+        mPreviewSize = chooseOptimalSize(map.getOutputSizes(SurfaceTexture.class),
+                width, height, mVideoSize);
 
-    /**
-     * Given {@code choices} of {@code Size}s supported by a camera, chooses the smallest one whose
-     * width and height are at least as large as the respective requested values, and whose aspect
-     * ratio matches with the specified value.
-     *
-     * @param choices     The list of sizes that the camera supports for the intended output class
-     * @param width       The minimum desired width
-     * @param height      The minimum desired height
-     * @param aspectRatio The aspect ratio
-     * @return The optimal {@code Size}, or an arbitrary one if none were big enough
-     */
-    private static Size chooseOptimalSize(Size[] choices, int width, int height, Size aspectRatio) {
-        // Collect the supported resolutions that are at least as big as the preview Surface
-        List<Size> bigEnough = new ArrayList<>();
-        int w = aspectRatio.getWidth();
-        int h = aspectRatio.getHeight();
-        for (Size option : choices) {
-            if (option.getHeight() == option.getWidth() * h / w &&
-                    option.getWidth() >= width && option.getHeight() >= height) {
-                bigEnough.add(option);
-            }
-        }
-
-        // Pick the smallest of those, assuming we found any
-        if (bigEnough.size() > 0) {
-            return Collections.min(bigEnough, new CompareSizesByArea());
+        int orientation = mActivity.getResources().getConfiguration().orientation;
+        if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            mTextureView.setAspectRatio(mPreviewSize.getWidth(), mPreviewSize.getHeight());
         } else {
-            Log.e(TAG, "Couldn't find any suitable preview size");
-            return choices[0];
+            mTextureView.setAspectRatio(mPreviewSize.getHeight(), mPreviewSize.getWidth());
         }
     }
 
@@ -276,6 +235,8 @@ public class DefaultCameraHelper implements CameraHelper {
         try {
             closePreviewSession();
             SurfaceTexture texture = mTextureView.getSurfaceTexture();
+            assert texture != null;
+
             texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
             mPreviewBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
 
@@ -293,10 +254,7 @@ public class DefaultCameraHelper implements CameraHelper {
 
                         @Override
                         public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-                            Activity activity = mActivity;
-                            if (null != activity) {
-                                Toast.makeText(activity, "Failed", Toast.LENGTH_SHORT).show();
-                            }
+
                         }
                     }, mBackgroundHandler);
         } catch (CameraAccessException e) {
@@ -422,7 +380,7 @@ public class DefaultCameraHelper implements CameraHelper {
         mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
         mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
         if (mNextVideoAbsolutePath == null || mNextVideoAbsolutePath.isEmpty()) {
-            mNextVideoAbsolutePath = getVideoFilePath(mActivity);
+            mNextVideoAbsolutePath = FileUtils.getVideoFilePath(mActivity);
         }
         mMediaRecorder.setOutputFile(mNextVideoAbsolutePath);
         mMediaRecorder.setVideoEncodingBitRate(10000000);
@@ -444,11 +402,6 @@ public class DefaultCameraHelper implements CameraHelper {
         mMediaRecorder.prepare();
     }
 
-    private String getVideoFilePath(Context context) {
-        final File dir = context.getExternalFilesDir(null);
-        return (dir == null ? "" : (dir.getAbsolutePath() + "/"))
-                + System.currentTimeMillis() + ".mp4";
-    }
 
     private void stopRecordingVideo() {
         // Stop recording

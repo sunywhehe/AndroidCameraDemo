@@ -25,9 +25,11 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.Toast;
 
+import com.example.android.camera2video.base.BaseFragment;
 import com.example.android.camera2video.camera.CameraHelper;
 import com.example.android.camera2video.camera.DefaultCameraHelper;
 import com.example.android.camera2video.camera.ICameraStateListener;
+import com.example.android.camera2video.widget.AutoFitTextureView;
 
 import static com.example.android.camera2video.Constant.VIDEO_PERMISSIONS;
 
@@ -152,7 +154,6 @@ public class Camera2VideoFragment extends BaseFragment
                 } else {
                     mCameraHelper.startRecord();
                 }
-                mIsRecordingVideo = !mIsRecordingVideo;
                 break;
             }
             case R.id.info: {

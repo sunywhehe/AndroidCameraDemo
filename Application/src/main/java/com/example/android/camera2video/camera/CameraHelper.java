@@ -2,7 +2,7 @@ package com.example.android.camera2video.camera;
 
 import android.app.Activity;
 
-import com.example.android.camera2video.AutoFitTextureView;
+import com.example.android.camera2video.widget.AutoFitTextureView;
 
 /**
  * @author leosun
